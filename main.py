@@ -1,11 +1,11 @@
 import os
 from typing import List, Optional
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from database import create_document, get_documents, db
-from schemas import Watch
+from schemas import Watch, BlogPost
 
 app = FastAPI(title="Monaco Watch Company API")
 
@@ -36,6 +36,16 @@ class WatchOut(BaseModel):
     in_stock: bool = True
     rating: Optional[float] = None
 
+class BlogOut(BaseModel):
+    id: str
+    slug: str
+    title: str
+    excerpt: str
+    content: str
+    tags: List[str] = []
+    locale: str = "en"
+    hero_image: Optional[str] = None
+
 
 def _doc_to_watch_out(doc) -> WatchOut:
     return WatchOut(
@@ -59,6 +69,19 @@ def _doc_to_watch_out(doc) -> WatchOut:
     )
 
 
+def _doc_to_blog_out(doc) -> BlogOut:
+    return BlogOut(
+        id=str(doc.get("_id")),
+        slug=doc.get("slug"),
+        title=doc.get("title"),
+        excerpt=doc.get("excerpt"),
+        content=doc.get("content"),
+        tags=doc.get("tags", []),
+        locale=doc.get("locale", "en"),
+        hero_image=doc.get("hero_image"),
+    )
+
+
 @app.get("/")
 def read_root():
     return {"message": "Monaco Watch Company Backend Running"}
@@ -79,6 +102,29 @@ def list_watches(
         filter_query["featured"] = featured
     docs = get_documents("watch", filter_query, limit)
     return [_doc_to_watch_out(d) for d in docs]
+
+
+@app.get("/api/blogs", response_model=List[BlogOut])
+def list_blogs(
+    locale: str = Query(default="en", description="Language code: en|de|fr"),
+    limit: int = Query(default=6, ge=1, le=50)
+):
+    """List blog posts for SEO by locale"""
+    if db is not None and db["blog"].count_documents({}) == 0:
+        _seed_demo_blogs()
+    filter_query = {"locale": locale}
+    docs = get_documents("blog", filter_query, limit)
+    return [_doc_to_blog_out(d) for d in docs]
+
+
+@app.get("/api/blogs/{slug}", response_model=BlogOut)
+def get_blog(slug: str):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    doc = db["blog"].find_one({"slug": slug})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Blog not found")
+    return _doc_to_blog_out(doc)
 
 
 @app.get("/test")
@@ -122,6 +168,7 @@ def test_database():
 def seed():
     """Manually seed demo watches (idempotent)"""
     _seed_demo_watches(force=True)
+    _seed_demo_blogs(force=True)
     return {"status": "ok"}
 
 
@@ -207,6 +254,74 @@ def _seed_demo_watches(force: bool = False):
         if existing and force:
             col.delete_one({"_id": existing["_id"]})
         create_document("watch", w)
+
+
+def _seed_demo_blogs(force: bool = False):
+    """Insert demo multilanguage blog posts to power SEO"""
+    if db is None:
+        return
+    col = db["blog"]
+    if not force and col.count_documents({}) > 0:
+        return
+
+    demo_posts: List[BlogPost] = [
+        # EN
+        BlogPost(
+            slug="monaco-watchmaking-heritage",
+            title="The Heritage of Watchmaking in Monaco",
+            excerpt="From the Riviera to your wrist: a journey through precision and style.",
+            content=(
+                "Monaco blends Swiss precision with Mediterranean flair. In this article, we explore the craftsmanship behind our signature calibres, finishing techniques, and the art of timeless design."
+            ),
+            tags=["heritage", "watchmaking", "monaco"],
+            locale="en",
+            hero_image="https://images.unsplash.com/photo-1518546305927-5a555bb7020a?q=80&w=1600&auto=format&fit=crop",
+        ),
+        BlogPost(
+            slug="guide-automatic-vs-manual",
+            title="Automatic vs Manual: Which Movement Suits You?",
+            excerpt="Understand the differences to choose your perfect timepiece.",
+            content=(
+                "Choosing between automatic and manual winds depends on your lifestyle. We compare power reserves, maintenance, and tactile experience to help you decide."
+            ),
+            tags=["guides", "movements"],
+            locale="en",
+            hero_image="https://images.unsplash.com/photo-1526045612212-70caf35c14df?q=80&w=1600&auto=format&fit=crop",
+        ),
+        # DE
+        BlogPost(
+            slug="uhrmacherkunst-in-monaco",
+            title="Uhrmacherkunst in Monaco: Tradition trifft Moderne",
+            excerpt="Vom Riviera-Charme inspiriert – Präzision am Handgelenk.",
+            content=(
+                "Monaco vereint Schweizer Präzision mit mediterranem Esprit. Wir beleuchten Kaliber, Veredelungen und zeitloses Design."
+            ),
+            tags=["tradition", "handwerk"],
+            locale="de",
+            hero_image="https://images.unsplash.com/photo-1511385348-a52b4a160dc2?q=80&w=1600&auto=format&fit=crop",
+        ),
+        # FR
+        BlogPost(
+            slug="patrimoine-horloger-monaco",
+            title="Patrimoine horloger à Monaco",
+            excerpt="De la Riviera à votre poignet : la précision au service de l’élégance.",
+            content=(
+                "Monaco marie la précision suisse à l’allure méditerranéenne. Découvrez nos calibres, finitions et l’art d’un dessin intemporel."
+            ),
+            tags=["patrimoine", "horlogerie"],
+            locale="fr",
+            hero_image="https://images.unsplash.com/photo-1490367532201-b9bc1dc483f6?q=80&w=1600&auto=format&fit=crop",
+        ),
+    ]
+
+    # Upsert by slug
+    for post in demo_posts:
+        existing = col.find_one({"slug": post.slug, "locale": post.locale})
+        if existing and not force:
+            continue
+        if existing and force:
+            col.delete_one({"_id": existing["_id"]})
+        create_document("blog", post)
 
 
 if __name__ == "__main__":
