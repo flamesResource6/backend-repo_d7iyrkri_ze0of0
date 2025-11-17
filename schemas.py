@@ -11,8 +11,8 @@ Model name is converted to lowercase for the collection name:
 - BlogPost -> "blogs" collection
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional
+from pydantic import BaseModel, Field, HttpUrl
+from typing import Optional, List
 
 # Example schemas (replace with your own):
 
@@ -41,8 +41,37 @@ class Product(BaseModel):
 # Add your own schemas here:
 # --------------------------------------------------
 
-# Note: The Flames database viewer will automatically:
-# 1. Read these schemas from GET /schema endpoint
-# 2. Use them for document validation when creating/editing
-# 3. Handle all database operations (CRUD) directly
-# 4. You don't need to create any database endpoints!
+class Watch(BaseModel):
+    """
+    Luxury watches offered by Monaco Watch Company
+    Collection name: "watch"
+    """
+    name: str = Field(..., description="Model name")
+    brand: str = Field(..., description="Brand name")
+    description: Optional[str] = Field(None, description="Short description")
+    price: float = Field(..., ge=0, description="Retail price in USD")
+    currency: str = Field("USD", description="Currency code")
+    images: List[HttpUrl] = Field(default_factory=list, description="Gallery image URLs")
+    thumbnail: Optional[HttpUrl] = Field(None, description="Primary image URL")
+    movement: Optional[str] = Field(None, description="Movement type (Automatic, Manual, Quartz)")
+    case: Optional[str] = Field(None, description="Case material & size")
+    strap: Optional[str] = Field(None, description="Strap/Band material")
+    water_resistance: Optional[str] = Field(None, description="Water resistance rating")
+    power_reserve: Optional[str] = Field(None, description="Power reserve details")
+    complications: List[str] = Field(default_factory=list, description="Complications like Chronograph, GMT")
+    featured: bool = Field(False, description="Show on homepage features")
+    in_stock: bool = Field(True, description="Inventory status")
+    rating: Optional[float] = Field(None, ge=0, le=5, description="Average rating")
+
+class BlogPost(BaseModel):
+    """
+    Editorial blog posts for SEO
+    Collection name: "blogpost" -> we will use alias collection name "blog" in queries
+    """
+    slug: str = Field(..., description="URL-friendly slug")
+    title: str = Field(..., description="Post title")
+    excerpt: str = Field(..., description="Short summary")
+    content: str = Field(..., description="Full content (markdown allowed)")
+    tags: List[str] = Field(default_factory=list, description="Tags for categorization")
+    locale: str = Field("en", description="Language code: en, de, fr")
+    hero_image: Optional[HttpUrl] = Field(None, description="Header image URL")
